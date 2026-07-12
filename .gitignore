@@ -1,0 +1,13 @@
+# Datasets and model weights
+data/
+models/
+src/models/
+*.pth
+*.h5
+*.pt
+*.zip
+
+.venv/
+# Python cache and Jupyter
+__pycache__/
+.ipynb_checkpoints/
