@@ -8,6 +8,8 @@ src/models/
 *.zip
 
 .venv/
+
+logs/
 # Python cache and Jupyter
 __pycache__/
 .ipynb_checkpoints/
