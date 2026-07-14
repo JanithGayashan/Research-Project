@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Subset
 
 from config import Config
 from models import build_model
-from dataset import SelfDrivingDataset, load_eval_dataset
+from dataset import load_eval_dataset
 
 # ==================================================================
 # CONFIGURATION FOR EVALUATION
