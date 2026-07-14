@@ -139,7 +139,9 @@ def run_causal_evaluation():
     eval_models = ["resnet18", "soft_attn", "gabnet"]
     
     # 1. Load the Standard Validation Dataset (In-Distribution)
-    _, val_dataset = load_eval_dataset(Config.DEFAULT_DRIVING_LOG, Config.DATA_DIR)
+    # 1. Load the Standard Validation Dataset (In-Distribution)
+    id_img_dir = os.path.join(os.path.dirname(Config.DEFAULT_DRIVING_LOG), "IMG")
+    _, val_dataset = load_eval_dataset(Config.DEFAULT_DRIVING_LOG, id_img_dir)
     
     # Create a small subset for the Intervention test so it runs quickly
     np.random.seed(Config.VAL_SPLIT_SEED)
@@ -153,8 +155,8 @@ def run_causal_evaluation():
     ood_loader = None
     if OOD_CSV_PATH and os.path.exists(OOD_CSV_PATH):
         print(f"🌍 Found Out-of-Distribution Dataset at {OOD_CSV_PATH}")
-        ood_dir = os.path.dirname(OOD_CSV_PATH)
-        _, ood_dataset = load_eval_dataset(OOD_CSV_PATH, ood_dir)
+        ood_img_dir = os.path.join(os.path.dirname(OOD_CSV_PATH), "IMG")
+        _, ood_dataset = load_eval_dataset(OOD_CSV_PATH, ood_img_dir)
         ood_loader = DataLoader(ood_dataset, batch_size=Config.BATCH_SIZE, shuffle=False)
     else:
         print("⚠️ No OoD dataset provided (or path invalid). Skipping Method 1 (Domain Shift).")
