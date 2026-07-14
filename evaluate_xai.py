@@ -28,7 +28,7 @@ from dataset import load_eval_dataset
 # Limit samples because Deletion AUC requires dozens of forward passes per image
 N_XAI_SAMPLES = 50  
 DELETION_STEPS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-SPARSITY_THRESHOLD = 1e-4  # Anything below this is considered a "dead" channel
+SPARSITY_THRESHOLD = 1e-2  # Changed from 1e-4 to account for Sigmoid tails
 # ==================================================================
 
 # --- Helper: Simple Grad-CAM for the ResNet Baseline ---
@@ -194,10 +194,14 @@ def run_xai_evaluation():
     
     # Load validation data
     id_img_dir = os.path.join(os.path.dirname(Config.DEFAULT_DRIVING_LOG), "IMG")
-    _, val_dataset = load_eval_dataset(Config.DEFAULT_DRIVING_LOG, id_img_dir)
+    val_df, val_dataset = load_eval_dataset(Config.DEFAULT_DRIVING_LOG, id_img_dir)
+    
+    # NEW: Filter for actual turns to avoid the "Straight-Driving Zero-Error Trap"
+    # We only want to evaluate XAI on frames where the human actually steered
+    turn_indices = [i for i, angle in enumerate(val_df['steering']) if abs(angle) > 0.05]
     
     np.random.seed(Config.VAL_SPLIT_SEED)
-    subset_indices = np.random.choice(len(val_dataset), min(N_XAI_SAMPLES, len(val_dataset)), replace=False)
+    subset_indices = np.random.choice(turn_indices, min(N_XAI_SAMPLES, len(turn_indices)), replace=False)
     xai_dataset = Subset(val_dataset, subset_indices)
     xai_loader = DataLoader(xai_dataset, batch_size=1, shuffle=False)
     
