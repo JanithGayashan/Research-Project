@@ -1,36 +1,14 @@
-"""
-train.py
-========
-Multi-seed training engine for the full model comparison
-(PilotNet, VanillaResNet, CBAMResNet, AdditiveAttnAblation, GAB-Net).
-
-FIXES APPLIED vs. the original codebase:
-- Uses Config.MODEL_KEYS / Config.checkpoint_path() for ALL checkpoint
-  I/O, so evaluate.py / visualize.py can never fail to find a checkpoint
-  due to a naming mismatch again.
-- Uses the persisted train/val split (dataset.get_dataloaders), so the
-  held-out validation set is identical across every model and every seed.
-- The redundant "call get_dataloaders() once before the seed loop, then
-  again inside it" pattern is removed -- the split is fixed, so it is
-  loaded exactly once per seed (for the shuffling generator) and reused
-  for that seed's full model sweep.
-- TV loss is now logged every epoch (previously computed but discarded).
-- Regularization is applied strictly according to Config.REGULARIZED_MODEL_KEYS,
-  not "any model with a non-None attn_map".
-- After all seeds finish, utils.calculate_statistical_significance is
-  actually invoked (it existed in the original utils.py but was never
-  called anywhere) to produce a mean +/- std / 95% CI summary table.
-"""
-
 import os
 import pandas as pd
+import torch
+import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from config import Config
 from utils import ResearchLogger, save_checkpoint, count_parameters, summarize_multiseed_results
 from dataset import get_dataloaders
 from models import MODEL_REGISTRY, build_model
 from losses import compute_loss
-
 
 def train_single_model(model_key, model, train_loader, val_loader, seed):
     model_name = Config.MODEL_KEYS[model_key]
@@ -40,9 +18,6 @@ def train_single_model(model_key, model, train_loader, val_loader, seed):
 
     apply_regularization = model_key in Config.REGULARIZED_MODEL_KEYS
 
-    import torch.optim as optim
-    from torch.optim.lr_scheduler import ReduceLROnPlateau
-
     optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
     logger = ResearchLogger(model_name, seed, Config.LOG_DIR)
@@ -50,37 +25,37 @@ def train_single_model(model_key, model, train_loader, val_loader, seed):
     best_val_mse = float("inf")
 
     for epoch in range(1, Config.EPOCHS + 1):
-        # ---- Train ----
         model.train()
-        train_mse_sum, train_l1_sum, train_tv_sum = 0.0, 0.0, 0.0
+        train_mse_sum, train_l1_s_sum, train_tv_sum, train_l1_c_sum = 0.0, 0.0, 0.0, 0.0
 
         for images, angles in train_loader:
             images, angles = images.to(Config.DEVICE), angles.to(Config.DEVICE)
 
             optimizer.zero_grad()
             preds, attn_map = model(images)
-            loss, mse, l1, tv = compute_loss(preds, angles, attn_map, epoch, apply_regularization)
+            
+            loss, mse, l1_s, tv, l1_c = compute_loss(model, preds, angles, attn_map, epoch, apply_regularization)
+            
             loss.backward()
             optimizer.step()
 
             train_mse_sum += mse
-            train_l1_sum += l1
+            train_l1_s_sum += l1_s
             train_tv_sum += tv
+            train_l1_c_sum += l1_c
 
         n_train_batches = len(train_loader)
         avg_train_mse = train_mse_sum / n_train_batches
-        avg_train_l1 = train_l1_sum / n_train_batches
+        avg_train_l1 = train_l1_s_sum / n_train_batches
         avg_train_tv = train_tv_sum / n_train_batches
 
-        # ---- Validate ----
         model.eval()
         val_mse_sum = 0.0
-        import torch
         with torch.no_grad():
             for images, angles in val_loader:
                 images, angles = images.to(Config.DEVICE), angles.to(Config.DEVICE)
                 preds, attn_map = model(images)
-                _, mse, _, _ = compute_loss(preds, angles, attn_map, epoch, apply_regularization)
+                _, mse, _, _, _ = compute_loss(model, preds, angles, attn_map, epoch, apply_regularization)
                 val_mse_sum += mse
 
         avg_val_mse = val_mse_sum / len(val_loader)
@@ -90,7 +65,7 @@ def train_single_model(model_key, model, train_loader, val_loader, seed):
         print(
             f"Epoch {epoch:02d}/{Config.EPOCHS} | "
             f"Train MSE: {avg_train_mse:.4f} | Val MSE: {avg_val_mse:.4f} | "
-            f"L1: {avg_train_l1:.4f} | TV: {avg_train_tv:.4f}"
+            f"L1_Spatial: {avg_train_l1:.4f} | TV: {avg_train_tv:.4f}"
         )
 
         if avg_val_mse < best_val_mse:
@@ -101,21 +76,16 @@ def train_single_model(model_key, model, train_loader, val_loader, seed):
     print(f"[DONE] {model_name} (seed={seed}) | Best Val MSE: {best_val_mse:.4f}")
     return best_val_mse
 
-
 def resolve_dataset_paths():
     dataset_root = os.path.dirname(Config.DEFAULT_DRIVING_LOG)
     csv_path = Config.DEFAULT_DRIVING_LOG
     img_dir = Config.resolve_img_dir(dataset_root)
     return csv_path, img_dir
 
-
 def run_full_experiment(model_keys=None):
-    """
-    Trains every model in `model_keys` (default: ALL registered models)
-    across every seed in Config.SEEDS, then writes a per-run CSV and a
-    multi-seed statistical summary CSV.
-    """
-    model_keys = model_keys or list(MODEL_REGISTRY.keys())
+    # This explicitly restricts it to the 3 models you want to train
+    model_keys = model_keys or ["resnet18", "soft_attn", "gabnet"]
+    
     csv_path, img_dir = resolve_dataset_paths()
 
     print(f"[DATA] driving_log.csv -> {csv_path}")
@@ -149,7 +119,6 @@ def run_full_experiment(model_keys=None):
     print(summary_df.to_string(index=False))
 
     return results_df, summary_df
-
 
 if __name__ == "__main__":
     run_full_experiment()
