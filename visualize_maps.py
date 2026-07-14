@@ -11,7 +11,7 @@ import cv2
 import torch
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot import plt
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 
 from config import Config
