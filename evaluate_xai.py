@@ -165,7 +165,9 @@ def calculate_deletion_auc(model, dataloader, is_blackbox=False):
                     y_coords = pixels_to_delete // img.size(3)
                     x_coords = pixels_to_delete % img.size(3)
                     
-                    ruined_img[0, :, y_coords, x_coords] = mean_color[0, :, 0, 0]
+                    ruined_img[0, 0, y_coords, x_coords] = mean_color[0, 0, 0, 0] # Red
+                    ruined_img[0, 1, y_coords, x_coords] = mean_color[0, 1, 0, 0] # Green
+                    ruined_img[0, 2, y_coords, x_coords] = mean_color[0, 2, 0, 0] # Blue
                 
                 with torch.no_grad():
                     new_pred, _ = model(ruined_img)
