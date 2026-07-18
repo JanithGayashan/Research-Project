@@ -110,7 +110,7 @@ def run_visualizations():
     val_df, val_dataset = load_eval_dataset(Config.DEFAULT_DRIVING_LOG, id_img_dir)
     
     turn_indices = [i for i, angle in enumerate(val_df['steering']) if abs(angle) > 0.15]
-    np.random.seed(Config.VAL_SPLIT_SEED)
+    # np.random.seed(Config.VAL_SPLIT_SEED)
     subset_indices = np.random.choice(turn_indices, min(NUM_IMAGES_TO_GENERATE, len(turn_indices)), replace=False)
     
     loader = DataLoader(Subset(val_dataset, subset_indices), batch_size=1, shuffle=False)
