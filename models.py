@@ -143,37 +143,44 @@ class GABNet(nn.Module):
         resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         self.backbone = nn.Sequential(*list(resnet.children())[:-2])  
 
-        # 1. The Channel Gate with Parameter Fairness Bottleneck (512 -> 32 -> 512)
-        self.channel_gate = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
+        # IMPROVEMENT 2: Dual-Pooling Channel Gate
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.channel_mlp = nn.Sequential(
             nn.Conv2d(512, 32, kernel_size=1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(32, 512, kernel_size=1, bias=False),
-            nn.Sigmoid()
+            nn.Conv2d(32, 512, kernel_size=1, bias=False)
         )
+        self.channel_sigmoid = nn.Sigmoid()
         
-        # 2. The Spatial Gate
-        self.spatial_gate = nn.Sequential(
-            nn.Conv2d(512, 1, kernel_size=1, bias=False),
-            nn.Sigmoid()
-        )
+        # IMPROVEMENTS 1 & 3: Compressed Spatial Gate (2 input channels, 7x7 kernel)
+        self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
+        self.spatial_sigmoid = nn.Sigmoid()
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, 1)
         
-        # We track this so evaluate.py and losses.py can measure channel sparsity
         self.last_c_mask = None 
 
     def forward(self, x):
         raw_features = self.backbone(x)
         
-        # Filter 1: Channels
-        c_mask = self.channel_gate(raw_features)
+        # --- Channel Gate ---
+        avg_out = self.channel_mlp(self.avg_pool(raw_features))
+        max_out = self.channel_mlp(self.max_pool(raw_features))
+        c_mask = self.channel_sigmoid(avg_out + max_out)
+        
         self.last_c_mask = c_mask 
         f_c = raw_features * c_mask
         
-        # Filter 2: Spatial
-        s_mask = self.spatial_gate(f_c)
+        # --- Spatial Gate (Compressed) ---
+        # 1. Compress 512 channels into 2 summary channels (Average and Max)
+        s_avg_out = torch.mean(f_c, dim=1, keepdim=True)
+        s_max_out, _ = torch.max(f_c, dim=1, keepdim=True)
+        s_concat = torch.cat([s_avg_out, s_max_out], dim=1)
+        
+        # 2. Apply the 7x7 spatial convolution to the 2 compressed channels
+        s_mask = self.spatial_sigmoid(self.spatial_conv(s_concat))
         gated_features = f_c * s_mask
 
         x = self.avgpool(gated_features)
