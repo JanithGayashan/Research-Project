@@ -141,6 +141,66 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+# class GABNet(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+#         self.backbone = nn.Sequential(*list(resnet.children())[:-2])  
+
+#         # --- Channel Gate ---
+#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+#         self.max_pool = nn.AdaptiveMaxPool2d(1)
+#         self.channel_mlp = nn.Sequential(
+#             nn.Conv2d(512, 32, kernel_size=1, bias=False),
+#             nn.ReLU(),
+#             nn.Conv2d(32, 512, kernel_size=1, bias=False)
+#         )
+#         self.channel_sigmoid = nn.Sigmoid()
+        
+#         # --- Spatial Gate (Compressed) ---
+#         self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
+#         self.spatial_sigmoid = nn.Sigmoid()
+
+#         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
+#         # NEW: Dropout layer added here (p=0.5 means 50% probability)
+#         self.dropout = nn.Dropout(p=0.5) 
+        
+#         self.fc = nn.Linear(512, 1)
+        
+#         self.last_c_mask = None 
+
+#     def forward(self, x):
+#         raw_features = self.backbone(x)
+        
+#         # --- Channel Gate ---
+#         avg_out = self.channel_mlp(self.avg_pool(raw_features))
+#         max_out = self.channel_mlp(self.max_pool(raw_features))
+#         c_mask = self.channel_sigmoid(avg_out + max_out)
+        
+#         self.last_c_mask = c_mask 
+#         f_c = raw_features * c_mask
+        
+#         # --- Spatial Gate (Compressed) ---
+#         s_avg_out = torch.mean(f_c, dim=1, keepdim=True)
+#         s_max_out, _ = torch.max(f_c, dim=1, keepdim=True)
+#         s_concat = torch.cat([s_avg_out, s_max_out], dim=1)
+        
+#         s_mask = self.spatial_sigmoid(self.spatial_conv(s_concat))
+#         gated_features = f_c * s_mask
+
+#         x = self.avgpool(gated_features)
+#         x = torch.flatten(x, 1)
+        
+#         # NEW: Apply Dropout right before the final Linear layer
+#         x = self.dropout(x) 
+        
+#         steering = self.fc(x)
+#         return steering.squeeze(-1), s_mask
+
+#     def get_target_layer(self):
+#         return self.backbone[-1]
+
 class GABNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -163,8 +223,7 @@ class GABNet(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # NEW: Dropout layer added here (p=0.5 means 50% probability)
-        self.dropout = nn.Dropout(p=0.5) 
+        # FIX 1: Dropout completely removed to prevent spurious backup learning.
         
         self.fc = nn.Linear(512, 1)
         
@@ -187,20 +246,26 @@ class GABNet(nn.Module):
         s_concat = torch.cat([s_avg_out, s_max_out], dim=1)
         
         s_mask = self.spatial_sigmoid(self.spatial_conv(s_concat))
+        
+        # The physical gating happens here
         gated_features = f_c * s_mask
 
         x = self.avgpool(gated_features)
         x = torch.flatten(x, 1)
         
-        # NEW: Apply Dropout right before the final Linear layer
-        x = self.dropout(x) 
+        # FIX 1 (cont.): No Dropout applied here before the final layer.
         
         steering = self.fc(x)
-        return steering.squeeze(-1), s_mask
+        
+        # FIX 2: We must return raw_features alongside steering and s_mask.
+        # This allows the custom loss function to penalize any features 
+        # that activate outside the s_mask.
+        return steering.squeeze(-1), s_mask, raw_features
 
     def get_target_layer(self):
+        # Grad-CAM targets this layer. The custom loss will now force 
+        # this layer to align mathematically with your s_mask.
         return self.backbone[-1]
-
 # ==================================================================
 # 6. MODEL REGISTRY
 # ==================================================================

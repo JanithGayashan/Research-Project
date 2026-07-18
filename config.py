@@ -37,7 +37,7 @@ class Config:
     IMAGE_SIZE = (224, 224) 
     BATCH_SIZE = 32
     LEARNING_RATE = 1e-4
-    EPOCHS = 20
+    EPOCHS = 30
     OPTIMIZER = "Adam"
     NUM_WORKERS = 2
 
@@ -45,6 +45,7 @@ class Config:
     LAMBDA_SPARSITY = 0.01     # Spatial L1 penalty weight
     LAMBDA_CHANNEL = 0.005     # Channel L1 penalty weight (NEW for Dual-Gate)
     LAMBDA_TV = 0.001          # Total Variation penalty weight
+    LAMBDA_LEAKAGE = 0.05
     WARMUP_EPOCHS = 5          
 
     # DATASET SETTINGS
