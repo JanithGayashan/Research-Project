@@ -50,7 +50,14 @@ class GradCAM:
     def generate(self, x):
         self.model.zero_grad()
         x.requires_grad = True
-        pred, _ = self.model(x)
+        # pred, _ = self.model(x)
+        # pred.backward(retain_graph=True)
+        outputs = self.model(x)
+        if isinstance(outputs, tuple):
+            pred = outputs[0]  # The first item is ALWAYS the steering prediction
+        else:
+            pred = outputs     # Fallback for models that just return 1 item (like ResNet18)
+            
         pred.backward(retain_graph=True)
         
         weights = torch.mean(self.gradient, dim=[2, 3], keepdim=True)
