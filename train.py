@@ -18,7 +18,7 @@ def train_single_model(model_key, model, train_loader, val_loader, seed):
 
     apply_regularization = model_key in Config.REGULARIZED_MODEL_KEYS
 
-    optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=Config.LEARNING_RATE, weight_decay=1e-4)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
     logger = ResearchLogger(model_name, seed, Config.LOG_DIR)
 

@@ -137,13 +137,17 @@ class AdditiveAttnAblation(nn.Module):
 # ==================================================================
 # 5. PROPOSED SOLUTION: GAB-Net (Dual-Gated Information Bottleneck)
 # ==================================================================
+import torch
+import torch.nn as nn
+import torchvision.models as models
+
 class GABNet(nn.Module):
     def __init__(self):
         super().__init__()
         resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         self.backbone = nn.Sequential(*list(resnet.children())[:-2])  
 
-        # IMPROVEMENT 2: Dual-Pooling Channel Gate
+        # --- Channel Gate ---
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.channel_mlp = nn.Sequential(
@@ -153,11 +157,15 @@ class GABNet(nn.Module):
         )
         self.channel_sigmoid = nn.Sigmoid()
         
-        # IMPROVEMENTS 1 & 3: Compressed Spatial Gate (2 input channels, 7x7 kernel)
+        # --- Spatial Gate (Compressed) ---
         self.spatial_conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
         self.spatial_sigmoid = nn.Sigmoid()
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # NEW: Dropout layer added here (p=0.5 means 50% probability)
+        self.dropout = nn.Dropout(p=0.5) 
+        
         self.fc = nn.Linear(512, 1)
         
         self.last_c_mask = None 
@@ -174,17 +182,19 @@ class GABNet(nn.Module):
         f_c = raw_features * c_mask
         
         # --- Spatial Gate (Compressed) ---
-        # 1. Compress 512 channels into 2 summary channels (Average and Max)
         s_avg_out = torch.mean(f_c, dim=1, keepdim=True)
         s_max_out, _ = torch.max(f_c, dim=1, keepdim=True)
         s_concat = torch.cat([s_avg_out, s_max_out], dim=1)
         
-        # 2. Apply the 7x7 spatial convolution to the 2 compressed channels
         s_mask = self.spatial_sigmoid(self.spatial_conv(s_concat))
         gated_features = f_c * s_mask
 
         x = self.avgpool(gated_features)
         x = torch.flatten(x, 1)
+        
+        # NEW: Apply Dropout right before the final Linear layer
+        x = self.dropout(x) 
+        
         steering = self.fc(x)
         return steering.squeeze(-1), s_mask
 
