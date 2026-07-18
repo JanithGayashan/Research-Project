@@ -121,4 +121,10 @@ def run_full_experiment(model_keys=None):
     return results_df, summary_df
 
 if __name__ == "__main__":
-    run_full_experiment()
+    from config import Config
+    
+    # 1. Override the seeds list to ONLY use 42 for quick testing
+    Config.SEEDS = [42]
+    
+    # 2. Restrict the training to ONLY GAB-Net
+    run_full_experiment(model_keys=["gabnet"])
