@@ -145,11 +145,20 @@ def run_visualizations():
         # 2. GAB-Net (Grad-CAM)
         pred_gab_cam, mask_gab_cam = grad_cam_gab.generate(image)
         
+        # with torch.no_grad():
+        #     # 3. Soft Attention (Intrinsic)
+        #     pred_soft, mask_soft = model_soft(image)
+        #     # 4. GAB-Net (Intrinsic)
+        #     pred_gab, mask_gab_intrinsic = model_gab(image)
+
         with torch.no_grad():
-            # 3. Soft Attention (Intrinsic)
+            # 3. Soft Attention (Intrinsic) - Still returns 2 items
             pred_soft, mask_soft = model_soft(image)
-            # 4. GAB-Net (Intrinsic)
-            pred_gab, mask_gab_intrinsic = model_gab(image)
+            
+            # 4. GAB-Net (Intrinsic) - Now returns 3 items
+            gab_outputs = model_gab(image)
+            pred_gab = gab_outputs[0]
+            mask_gab_intrinsic = gab_outputs[1]
 
         # -- Generate Overlays --
         vis_res = overlay_heatmap(img_rgb_8bit, mask_res)
