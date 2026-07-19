@@ -11,6 +11,7 @@ import torch
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 from config import Config
 from models import build_model
@@ -99,14 +100,17 @@ def run_sparsity_evaluation():
             images = images.to(Config.DEVICE)
             
             for name, model in models.items():
-                # Forward pass (we don't care about the prediction output here)
+                # Forward pass
                 _ = model(images)
                 
-                # Grab the extracted feature map
-                fmap = extractors[name].feature_map
+                # Grab the raw extracted feature map
+                raw_fmap = extractors[name].feature_map
                 
-                # Calculate sparsity for this batch
-                batch_sparsity = calculate_activation_sparsity(fmap, SPARSITY_THRESHOLD)
+                # NEW: Apply ReLU to simulate the standard post-activation state
+                activated_fmap = F.relu(raw_fmap)
+                
+                # Calculate sparsity on the activated feature map
+                batch_sparsity = calculate_activation_sparsity(activated_fmap, SPARSITY_THRESHOLD)
                 sparsity_results[name].append(batch_sparsity)
                 
             # Print progress every 10 batches
