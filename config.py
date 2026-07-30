@@ -161,7 +161,7 @@ class Config:
     LAMBDA_SPARSITY = 0.01     # Spatial L1 penalty weight
     LAMBDA_CHANNEL = 0.005     # Channel L1 penalty weight
     LAMBDA_TV = 0.001          # Total Variation penalty weight
-    LAMBDA_LEAKAGE = 0.05      # Attention-Guided Feature Leakage Regularization (AGFLR)
+    LAMBDA_LEAKAGE = 0.0005      # Attention-Guided Feature Leakage Regularization (AGFLR)
     WARMUP_EPOCHS = 5          
 
     # DATASET SETTINGS
