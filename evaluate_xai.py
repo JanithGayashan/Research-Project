@@ -336,42 +336,117 @@ class HookBypassGradCAM:
 
 # --------------------------------------------------------
 
-def calculate_sparsity(model, dataloader):
-    model.eval()
-    activations = []
-    handle = None
-    for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            handle = module.register_forward_hook(lambda m, i, o: activations.append(i[0].detach().cpu().numpy()))
+# def calculate_sparsity(model, dataloader):
+#     model.eval()
+#     activations = []
+#     handle = None
+#     for name, module in model.named_modules():
+#         if isinstance(module, torch.nn.Linear):
+#             handle = module.register_forward_hook(lambda m, i, o: activations.append(i[0].detach().cpu().numpy()))
             
-    with torch.no_grad():
-        for i, (images, _) in enumerate(dataloader):
-            images = images.to(Config.DEVICE)
-            model(images)
-            if i > 5: break
+#     with torch.no_grad():
+#         for i, (images, _) in enumerate(dataloader):
+#             images = images.to(Config.DEVICE)
+#             model(images)
+#             if i > 5: break
             
-    if handle: handle.remove()
-    act_matrix = np.concatenate(activations, axis=0)
-    mean_activations = np.mean(np.abs(act_matrix), axis=0)
+#     if handle: handle.remove()
+#     act_matrix = np.concatenate(activations, axis=0)
+#     mean_activations = np.mean(np.abs(act_matrix), axis=0)
     
-    dead_channels = np.sum(mean_activations < SPARSITY_THRESHOLD)
-    sparsity_ratio = dead_channels / len(mean_activations)
-    return sparsity_ratio, dead_channels, len(mean_activations)
+#     dead_channels = np.sum(mean_activations < SPARSITY_THRESHOLD)
+#     sparsity_ratio = dead_channels / len(mean_activations)
+#     return sparsity_ratio, dead_channels, len(mean_activations)
 
+def calculate_sparsity(model, dataloader):
+    """
+    Measures sparsity of the attention mask itself (the actual GAB-Net claim).
+    """
+    model.eval()
+    all_masks = []
+    
+    with torch.no_grad():
+        for images, _ in dataloader:
+            images = images.to(Config.DEVICE)
+            # Unpack model output: (steering, mask, raw_features)
+            outputs = model(images)
+            mask = outputs[1] 
+            all_masks.append(mask.detach().cpu())
+            
+    mask_tensor = torch.cat(all_masks)
+    # Sparsity = proportion of mask pixels below your threshold
+    sparsity_ratio = torch.mean((mask_tensor < SPARSITY_THRESHOLD).float()).item()
+    
+    return sparsity_ratio
+
+# def calculate_deletion_auc(model, dataloader, is_blackbox=False):
+#     model.eval()
+#     grad_cam = HookBypassGradCAM(model) if is_blackbox else None
+#     mse_per_step = {step: [] for step in DELETION_STEPS}
+#     mean_color = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(Config.DEVICE)
+    
+#     for images, angles in tqdm(dataloader, desc="Calculating Deletion AUC"):
+#         images, angles = images.to(Config.DEVICE), angles.to(Config.DEVICE)
+        
+#         for j in range(images.size(0)):
+#             img = images[j].unsqueeze(0)
+#             target = angles[j]
+            
+#             if is_blackbox:
+#                 img.requires_grad = True
+#                 mask = grad_cam.generate(img)
+#                 img.requires_grad = False
+#             else:
+#                 with torch.no_grad():
+#                     outputs = model(img)
+#                     # DYNAMIC UNPACKING: Always take index 1 (the mask)
+#                     mask = outputs[1] 
+#                 mask = mask.squeeze()
+                
+#             mask_np = cv2.resize(mask.cpu().detach().numpy(), (img.size(3), img.size(2)))
+#             flattened_mask = mask_np.flatten()
+#             sorted_indices = np.argsort(flattened_mask)[::-1]
+#             total_pixels = len(flattened_mask)
+            
+#             for step in DELETION_STEPS:
+#                 num_to_delete = int(step * total_pixels)
+#                 ruined_img = img.clone().detach()
+#                 if num_to_delete > 0:
+#                     pixels_to_delete = sorted_indices[:num_to_delete]
+#                     y_coords = pixels_to_delete // img.size(3)
+#                     x_coords = pixels_to_delete % img.size(3)
+#                     ruined_img[0, 0, y_coords, x_coords] = mean_color[0, 0, 0, 0]
+#                     ruined_img[0, 1, y_coords, x_coords] = mean_color[0, 1, 0, 0]
+#                     ruined_img[0, 2, y_coords, x_coords] = mean_color[0, 2, 0, 0]
+                
+#                 with torch.no_grad():
+#                     outs = model(ruined_img)
+#                     pred_del = outs[0] if isinstance(outs, tuple) else outs
+                    
+#                 mse_per_step[step].append((pred_del.item() - target.item()) ** 2)
+                
+#     y_values = [np.mean(mse_per_step[s]) for s in DELETION_STEPS]
+#     return np.trapz(y_values, DELETION_STEPS)
 
 def calculate_deletion_auc(model, dataloader, is_blackbox=False):
     model.eval()
     grad_cam = HookBypassGradCAM(model) if is_blackbox else None
-    mse_per_step = {step: [] for step in DELETION_STEPS}
+    diffs_per_step = {step: [] for step in DELETION_STEPS}
     mean_color = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(Config.DEVICE)
     
-    for images, angles in tqdm(dataloader, desc="Calculating Deletion AUC"):
-        images, angles = images.to(Config.DEVICE), angles.to(Config.DEVICE)
+    for images, _ in tqdm(dataloader, desc="Calculating Deletion AUC"):
+        images = images.to(Config.DEVICE)
         
         for j in range(images.size(0)):
             img = images[j].unsqueeze(0)
-            target = angles[j]
             
+            # 1. Get ORIGINAL prediction
+            with torch.no_grad():
+                out_orig = model(img)
+                pred_orig = out_orig[0] if isinstance(out_orig, tuple) else out_orig
+                pred_orig = pred_orig.item()
+            
+            # 2. Get Mask
             if is_blackbox:
                 img.requires_grad = True
                 mask = grad_cam.generate(img)
@@ -379,33 +454,30 @@ def calculate_deletion_auc(model, dataloader, is_blackbox=False):
             else:
                 with torch.no_grad():
                     outputs = model(img)
-                    # DYNAMIC UNPACKING: Always take index 1 (the mask)
-                    mask = outputs[1] 
+                    mask = outputs[1]
                 mask = mask.squeeze()
                 
             mask_np = cv2.resize(mask.cpu().detach().numpy(), (img.size(3), img.size(2)))
-            flattened_mask = mask_np.flatten()
-            sorted_indices = np.argsort(flattened_mask)[::-1]
-            total_pixels = len(flattened_mask)
+            sorted_indices = np.argsort(mask_np.flatten())[::-1]
+            total_pixels = len(mask_np.flatten())
             
+            # 3. Calculate Delta (Faithfulness)
             for step in DELETION_STEPS:
                 num_to_delete = int(step * total_pixels)
                 ruined_img = img.clone().detach()
+                
                 if num_to_delete > 0:
-                    pixels_to_delete = sorted_indices[:num_to_delete]
-                    y_coords = pixels_to_delete // img.size(3)
-                    x_coords = pixels_to_delete % img.size(3)
-                    ruined_img[0, 0, y_coords, x_coords] = mean_color[0, 0, 0, 0]
-                    ruined_img[0, 1, y_coords, x_coords] = mean_color[0, 1, 0, 0]
-                    ruined_img[0, 2, y_coords, x_coords] = mean_color[0, 2, 0, 0]
+                    y, x = np.unravel_index(sorted_indices[:num_to_delete], (img.size(2), img.size(3)))
+                    ruined_img[0, :, y, x] = 0 # Delete
                 
                 with torch.no_grad():
                     outs = model(ruined_img)
                     pred_del = outs[0] if isinstance(outs, tuple) else outs
                     
-                mse_per_step[step].append((pred_del.item() - target.item()) ** 2)
+                # FAITHFULNESS METRIC: Absolute change from ORIGINAL prediction
+                diffs_per_step[step].append(abs(pred_orig - pred_del.item()))
                 
-    y_values = [np.mean(mse_per_step[s]) for s in DELETION_STEPS]
+    y_values = [np.mean(diffs_per_step[s]) for s in DELETION_STEPS]
     return np.trapz(y_values, DELETION_STEPS)
 
 
