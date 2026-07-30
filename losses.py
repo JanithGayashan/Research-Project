@@ -127,7 +127,7 @@ def compute_loss(model, pred, target, attn_map, raw_features, current_epoch, app
         target_mask = attn_map.detach()
         
         # Step B: Calculate Feature Energy via L1 norm across all 512 channels
-        feature_energy = torch.sum(torch.abs(raw_features), dim=1, keepdim=True)
+        feature_energy = torch.mean(torch.abs(raw_features), dim=1, keepdim=True)
         
         # Step C: Calculate the background (Inverse of the attention mask)
         inverse_mask = 1.0 - target_mask
