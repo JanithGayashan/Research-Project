@@ -67,28 +67,28 @@ class GradCAM:
         return pred, cam.detach()
 
 
-def overlay_heatmap(img_np, mask_tensor, is_sigmoid=False):
+def overlay_heatmap(img_np, mask_tensor):
     """Resizes the tensor mask, applies a colormap, and blends it with the original image."""
     mask_np = mask_tensor.squeeze().cpu().numpy()
+    
+    # Track the TRUE maximum value before we normalize it for visualization
+    true_max = np.max(mask_np)
+    
     mask_resized = cv2.resize(mask_np, (img_np.shape[1], img_np.shape[0]))
     
-    if not is_sigmoid:
-        # For Grad-CAM: We must Min-Max normalize the raw gradients
-        mask_resized = mask_resized - np.min(mask_resized)
-        mask_max = np.max(mask_resized)
-        if mask_max > 0:
-            mask_resized = mask_resized / mask_max
-    else:
-        # For Intrinsic Masks: It is already a Sigmoid [0, 1]. 
-        # Do not normalize it, just clip it to prevent colormap crashes.
-        mask_resized = np.clip(mask_resized, 0.0, 1.0)
+    # Normalize to [0, 1] so we get vivid Red/Orange heatmaps for the thesis
+    mask_resized = mask_resized - np.min(mask_resized)
+    mask_max = np.max(mask_resized)
+    if mask_max > 0:
+        mask_resized = mask_resized / mask_max
         
     heatmap = np.uint8(255 * mask_resized)
     heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
     
     superimposed_img = cv2.addWeighted(img_np, 0.6, heatmap_colored, 0.4, 0)
-    return superimposed_img
+    
+    return superimposed_img, true_max
 
 
 def load_model(model_key, seed):
@@ -237,44 +237,44 @@ def run_visualizations():
         img_unnorm = np.clip((img_np * std) + mean, 0.0, 1.0)
         img_rgb_8bit = np.uint8(img_unnorm * 255)
 
-        # 1 & 2. Grad-CAM Generation
+        # -- Model Predictions --
         pred_res, mask_res = grad_cam_resnet.generate(image)
         pred_gab_cam, mask_gab_cam = grad_cam_gab.generate(image)
         
-        # 3 & 4. Intrinsic Mask Generation
         with torch.no_grad():
             pred_soft, mask_soft = model_soft(image)
             gab_outputs = model_gab(image)
             pred_gab = gab_outputs[0]
             mask_gab_intrinsic = gab_outputs[1]
 
-        # --- IMPORTANT NEW FLAGS HERE ---
-        vis_res = overlay_heatmap(img_rgb_8bit, mask_res, is_sigmoid=False)
-        vis_soft = overlay_heatmap(img_rgb_8bit, mask_soft, is_sigmoid=True)
-        vis_gab_intrinsic = overlay_heatmap(img_rgb_8bit, mask_gab_intrinsic, is_sigmoid=True)
-        vis_gab_cam = overlay_heatmap(img_rgb_8bit, mask_gab_cam, is_sigmoid=False)
+        # -- Generate Overlays (now also returns true max value) --
+        vis_res, max_res = overlay_heatmap(img_rgb_8bit, mask_res)
+        vis_soft, max_soft = overlay_heatmap(img_rgb_8bit, mask_soft)
+        vis_gab_intrinsic, max_gab = overlay_heatmap(img_rgb_8bit, mask_gab_intrinsic)
+        vis_gab_cam, max_gab_cam = overlay_heatmap(img_rgb_8bit, mask_gab_cam)
         
+        # -- Plotting --
         fig, axes = plt.subplots(1, 5, figsize=(30, 5))
-        plt.subplots_adjust(wspace=0.05)
+        plt.tight_layout(pad=1.0)
         
         axes[0].imshow(img_rgb_8bit)
         axes[0].set_title(f"Original Frame\nHuman: {target_angle.item():.3f}", fontsize=14)
         axes[0].axis('off')
         
         axes[1].imshow(vis_res)
-        axes[1].set_title(f"Vanilla ResNet (Grad-CAM)\nPred: {pred_res.item():.3f}", fontsize=14)
+        axes[1].set_title(f"Vanilla ResNet (Grad-CAM)\nPred: {pred_res.item():.3f}\nMax Val: {max_res:.3f}", fontsize=14)
         axes[1].axis('off')
         
         axes[2].imshow(vis_soft)
-        axes[2].set_title(f"Soft Attention (Intrinsic)\nPred: {pred_soft.item():.3f}", fontsize=14)
+        axes[2].set_title(f"Soft Attention (Intrinsic)\nPred: {pred_soft.item():.3f}\nMax Val: {max_soft:.3f}", fontsize=14)
         axes[2].axis('off')
         
         axes[3].imshow(vis_gab_intrinsic)
-        axes[3].set_title(f"GAB-Net (Intrinsic Mask)\nPred: {pred_gab.item():.3f}", fontsize=14)
+        axes[3].set_title(f"GAB-Net (Intrinsic)\nPred: {pred_gab.item():.3f}\nMax Val: {max_gab:.3f}", fontsize=14)
         axes[3].axis('off')
         
         axes[4].imshow(vis_gab_cam)
-        axes[4].set_title(f"GAB-Net (Grad-CAM)\nPred: {pred_gab_cam.item():.3f}", fontsize=14)
+        axes[4].set_title(f"GAB-Net (Grad-CAM)\nPred: {pred_gab_cam.item():.3f}\nMax Val: {max_gab_cam:.3f}", fontsize=14)
         axes[4].axis('off')
         
         save_file = os.path.join(out_dir, f"heatmap_comparison_{i+1}.png")
