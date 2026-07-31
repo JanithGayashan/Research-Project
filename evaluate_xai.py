@@ -509,7 +509,7 @@ def run_xai_evaluation():
     for model_key in eval_models:
         model_name = Config.MODEL_KEYS[model_key]
         for seed in Config.SEEDS:
-            ckpt = Config.checkpoint_path(model_key, seed, best=True)
+            ckpt = Config.checkpoint_path(model_key, seed, best=False)
             if not os.path.exists(ckpt): continue
             
             print(f"\n🔍 Analyzing {model_name} (Seed: {seed})...")

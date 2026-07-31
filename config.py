@@ -153,7 +153,7 @@ class Config:
     IMAGE_SIZE = (224, 224) 
     BATCH_SIZE = 32
     LEARNING_RATE = 1e-4
-    EPOCHS = 30
+    EPOCHS = 20
     OPTIMIZER = "Adam"
     NUM_WORKERS = 2
 
@@ -162,7 +162,7 @@ class Config:
     LAMBDA_CHANNEL = 0.005     # Channel L1 penalty weight
     LAMBDA_TV = 0.001          # Total Variation penalty weight
     LAMBDA_LEAKAGE = 0.005      # Attention-Guided Feature Leakage Regularization (AGFLR)
-    WARMUP_EPOCHS = 5          
+    WARMUP_EPOCHS = 1          
 
     # DATASET SETTINGS
     STEERING_OFFSET = 0.20        

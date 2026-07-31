@@ -89,7 +89,7 @@ def overlay_heatmap(img_np, mask_tensor):
 def load_model(model_key, seed):
     """Helper to quickly load a trained model."""
     model = build_model(model_key).to(Config.DEVICE)
-    ckpt_path = Config.checkpoint_path(model_key, seed, best=True)
+    ckpt_path = Config.checkpoint_path(model_key, seed, best=False)
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"Weights for {model_key} not found at {ckpt_path}")
     model.load_state_dict(torch.load(ckpt_path, map_location=Config.DEVICE))

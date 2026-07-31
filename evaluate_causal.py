@@ -396,7 +396,7 @@ def run_causal_evaluation():
         model_name = Config.MODEL_KEYS[model_key]
         
         for seed in Config.SEEDS:
-            ckpt_path = Config.checkpoint_path(model_key, seed, best=True)
+            ckpt_path = Config.checkpoint_path(model_key, seed, best=False)
             if not os.path.exists(ckpt_path):
                 print(f"⏭️ Skipping {model_name} (Seed {seed}) - No weights found.")
                 continue
