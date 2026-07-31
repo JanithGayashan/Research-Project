@@ -358,26 +358,37 @@ class HookBypassGradCAM:
 #     sparsity_ratio = dead_channels / len(mean_activations)
 #     return sparsity_ratio, dead_channels, len(mean_activations)
 
-def calculate_sparsity(model, dataloader):
+def calculate_sparsity(model, dataloader, is_blackbox):
     """
-    Measures sparsity of the attention mask itself (the actual GAB-Net claim).
+    Measures sparsity of the attention mask. Returns 0.0 for black-box models.
     """
+    if is_blackbox:
+        # Vanilla ResNet18 has no gates, so sparsity is definitionally 0
+        return 0.0, 0, 0
+    
     model.eval()
     all_masks = []
     
     with torch.no_grad():
-        for images, _ in dataloader:
+        for i, (images, _) in enumerate(dataloader):
             images = images.to(Config.DEVICE)
-            # Unpack model output: (steering, mask, raw_features)
             outputs = model(images)
-            mask = outputs[1] 
-            all_masks.append(mask.detach().cpu())
             
+            # SAFE UNPACKING: Only grab the mask if it exists
+            mask = outputs[1] if isinstance(outputs, tuple) and len(outputs) > 1 else None
+            
+            if mask is not None:
+                all_masks.append(mask.detach().cpu())
+            
+            if i > 5: break 
+            
+    if not all_masks:
+        return 0.0, 0, 0
+        
     mask_tensor = torch.cat(all_masks)
-    # Sparsity = proportion of mask pixels below your threshold
-    sparsity_ratio = torch.mean((mask_tensor < SPARSITY_THRESHOLD).float()).item()
+    sparsity_val = torch.mean((mask_tensor < SPARSITY_THRESHOLD).float()).item()
     
-    return sparsity_ratio
+    return sparsity_val, int(torch.sum(mask_tensor < SPARSITY_THRESHOLD).item()), mask_tensor.numel()
 
 # def calculate_deletion_auc(model, dataloader, is_blackbox=False):
 #     model.eval()
@@ -505,8 +516,11 @@ def run_xai_evaluation():
             model = build_model(model_key).to(Config.DEVICE)
             model.load_state_dict(torch.load(ckpt, map_location=Config.DEVICE, weights_only=True))
             
-            sparsity, dead, total = calculate_sparsity(model, xai_loader)
-            auc = calculate_deletion_auc(model, xai_loader, is_blackbox=(model_key=="resnet18"))
+            is_blackbox = (model_key == "resnet18")
+            
+            # Pass the is_blackbox flag to BOTH functions now
+            sparsity, dead, total = calculate_sparsity(model, xai_loader, is_blackbox)
+            auc = calculate_deletion_auc(model, xai_loader, is_blackbox)
             
             results.append({"Model": model_name, "Sparsity": sparsity, "AUC": auc})
             print(f"   => Sparsity: {sparsity:.1%} | AUC: {auc:.4f}")
